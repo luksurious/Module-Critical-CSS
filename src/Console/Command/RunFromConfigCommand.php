@@ -11,11 +11,12 @@ use Magento\Framework\ObjectManagerInterface;
 use Magento\Framework\App\State;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
-class GenerateCommand extends Command
+class RunFromConfigCommand extends Command
 {
     /**
      * @var ProcessManagerFactory
@@ -65,15 +66,12 @@ class GenerateCommand extends Command
 
     protected function configure()
     {
-        $this->setName('m2bp:critical-css:generate');
-        $this->addOption('replace-domain', 'd', InputOption::VALUE_OPTIONAL, 'Allows to replace the domain in the '
-            . 'generated pages to use a different one (e.g., to be able to generate critical css files on a different server than production)');
+        $this->setName('m2bp:critical-css:run-from-config');
+        $this->addArgument('config', InputArgument::REQUIRED, 'Path to config file');
         $this->addOption('no-domain-postprocessing', 's', InputOption::VALUE_NONE,
             'Don\'t add the base domain during post processing');
         $this->addOption('keep-old-files', null, InputOption::VALUE_NONE,
             'Don\'t delete old files');
-        $this->addOption('only-missing', null, InputOption::VALUE_NONE,
-            'Only generate critical-css for pages that are not created yet. Implies to keep old files.');
         parent::configure();
     }
 
@@ -92,18 +90,17 @@ class GenerateCommand extends Command
             $logger = $this->objectManager->create('M2Boilerplate\CriticalCss\Logger\Console', ['handlers' => ['console' => $consoleHandler]]);
             $output->writeln('<info>Generating Critical CSS</info>');
 
+            $configList = json_decode(file_get_contents($input->getArgument('config')), true);
+
             /** @var ProcessManager $processManager */
             $processManager = $this->processManagerFactory->create(['logger' => $logger]);
             $output->writeln('<info>Gathering URLs...</info>');
-            $processes = $processManager->createProcesses(
-                $input->getOption('replace-domain'),
-                $input->getOption('only-missing')
-            );
+            $processes = $processManager->createProcessesFromConfig($configList);
             $output->writeln('<info>Generating Critical CSS for ' . count($processes) . ' URLs...</info>');
 
             $processManager->executeProcesses(
                 $processes,
-                !$input->getOption('keep-old-files') && !$input->getOption('only-missing'),
+                !$input->getOption('keep-old-files'),
                 $input->getOption('no-domain-postprocessing')
             );
 

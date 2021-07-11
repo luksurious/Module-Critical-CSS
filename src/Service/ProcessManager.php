@@ -71,7 +71,8 @@ class ProcessManager
         StoreManagerInterface $storeManager,
         Container $container,
         CssProcessor $cssProcessor
-    ) {
+    )
+    {
         $this->emulation = $emulation;
         $this->storeManager = $storeManager;
         $this->container = $container;
@@ -85,9 +86,12 @@ class ProcessManager
 
     /**
      * @param ProcessContext[] $processList
-     * @param bool             $deleteOldFiles
+     * @param bool $deleteOldFiles
+     * @param bool $skipPostProcessing
+     * @throws \Magento\Framework\Exception\FileSystemException
      */
-    public function executeProcesses(array $processList, bool $deleteOldFiles = false): void
+    public function executeProcesses(array $processList, bool $deleteOldFiles = false,
+                                     bool $postProcessingNoDomain = false): void
     {
 
         if ($deleteOldFiles) {
@@ -97,13 +101,18 @@ class ProcessManager
         $batch = array_splice($processList, 0, $this->config->getNumberOfParallelProcesses());
         foreach ($batch as $context) {
             $context->getProcess()->start();
-            $this->logger->debug(sprintf('[%s|%s] > %s', $context->getProvider()->getName(), $context->getOrigIdentifier(), $context->getProcess()->getCommandLine()));
+            $this->logger->debug(sprintf(
+                '[%s|%s] > %s',
+                $context->getProvider()->getName(),
+                $context->getOrigIdentifier(),
+                $context->getProcess()->getCommandLine()
+            ));
         }
         while (count($processList) > 0 || count($batch) > 0) {
             foreach ($batch as $key => $context) {
                 if (!$context->getProcess()->isRunning()) {
                     try {
-                        $this->handleEndedProcess($context);
+                        $this->handleEndedProcess($context, $postProcessingNoDomain);
                     } catch (ProcessFailedException $e) {
                         $this->logger->error($e);
                     }
@@ -111,7 +120,12 @@ class ProcessManager
                     if (count($processList) > 0) {
                         $newProcess = array_shift($processList);
                         $newProcess->getProcess()->start();
-                        $this->logger->debug(sprintf('[%s|%s] - %s', $context->getProvider()->getName(), $context->getOrigIdentifier(), $context->getProcess()->getCommandLine()));
+                        $this->logger->debug(sprintf(
+                            '[%s|%s] - %s',
+                            $context->getProvider()->getName(),
+                            $context->getOrigIdentifier(),
+                            $context->getProcess()->getCommandLine()
+                        ));
                         $batch[] = $newProcess;
                     }
                 }
@@ -121,16 +135,27 @@ class ProcessManager
 
     }
 
-    public function createProcesses(): array
+    public function createProcesses(string $customDomain = null, bool $onlyMissing = true): array
     {
+        $existingFiles = $this->storage->getFileList();
+
         $processList = [];
         foreach ($this->storeManager->getStores() as $storeId => $store) {
-            $this->emulation->startEnvironmentEmulation($storeId,\Magento\Framework\App\Area::AREA_FRONTEND, true);
+            $this->emulation->startEnvironmentEmulation($storeId, \Magento\Framework\App\Area::AREA_FRONTEND, true);
             $this->storeManager->setCurrentStore($storeId);
 
-
             foreach ($this->container->getProviders() as $provider) {
-                $processList = array_merge($processList, $this->createProcessesForProvider($provider, $store));
+                $configList = $this->generateProcessConfigsForProvider($provider, $store, $customDomain);
+
+                $providerProcesses = $this->createProcessesForProvider($provider, $store, $configList);
+
+                if ($onlyMissing) {
+                    $providerProcesses = array_filter($providerProcesses, function (ProcessContext $item) use ($existingFiles) {
+                        return !array_search($item->getIdentifier() . '.css', $existingFiles);
+                    });
+                }
+
+                $processList = array_merge($processList, $providerProcesses);
             }
             $this->emulation->stopEnvironmentEmulation();
         }
@@ -138,31 +163,112 @@ class ProcessManager
         return $processList;
     }
 
-    public function createProcessesForProvider(ProviderInterface $provider, StoreInterface $store): array
+    public function createProcessesForProvider(ProviderInterface $provider, StoreInterface $store, array $configList): array
     {
         $processList = [];
-        $urls = $provider->getUrls($store);
-        foreach ($urls as $identifier => $url) {
-            $this->logger->info(sprintf('[%s:%s|%s] - %s', $store->getCode(), $provider->getName(), $identifier, $url));
+        foreach ($configList as $config) {
+            $this->logger->info(sprintf(
+                '[%s:%s|%s] - %s',
+                $store->getCode(),
+                $provider->getName(),
+                $config['identifier'],
+                $config['url']
+            ));
+
             $process = $this->criticalCssService->createCriticalCssProcess(
-                $url,
-                $this->config->getDimensions(),
+                $config['url'],
+                $config['dimensions'],
                 $this->config->getCriticalBinary(),
-                $this->config->getUsername(),
-                $this->config->getPassword()
+                $config['username'],
+                $config['password']
             );
             $context = $this->contextFactory->create([
                 'process' => $process,
                 'store' => $store,
                 'provider' => $provider,
-                'identifier' => $identifier
+                'identifier' => $config['identifier']
             ]);
             $processList[] = $context;
         }
         return $processList;
     }
 
-    protected function handleEndedProcess(ProcessContext $context)
+    public function createProcessesFromConfig(array $configList): array
+    {
+        $processList = [];
+        foreach ($this->storeManager->getStores() as $storeId => $store) {
+            $this->emulation->startEnvironmentEmulation($storeId, \Magento\Framework\App\Area::AREA_FRONTEND, true);
+            $this->storeManager->setCurrentStore($storeId);
+
+            $storeConfig = $configList[$storeId];
+
+            foreach ($this->container->getProviders() as $provider) {
+                $providerConfig = $storeConfig[$provider->getName()];
+
+                $providerProcesses = $this->createProcessesForProvider($provider, $store, $providerConfig);
+
+                $processList = array_merge($processList, $providerProcesses);
+            }
+            $this->emulation->stopEnvironmentEmulation();
+        }
+
+        return $processList;
+    }
+
+    public function createProcessConfigs(string $customDomain = null, bool $onlyMissing = true): array
+    {
+        $existingFiles = $this->storage->getFileList();
+
+        $configList = [];
+        foreach ($this->storeManager->getStores() as $storeId => $store) {
+            $this->emulation->startEnvironmentEmulation($storeId, \Magento\Framework\App\Area::AREA_FRONTEND, true);
+            $this->storeManager->setCurrentStore($storeId);
+
+            $providerConfigs = [];
+            foreach ($this->container->getProviders() as $provider) {
+                $configs = $this->generateProcessConfigsForProvider($provider, $store, $customDomain);
+
+                if ($onlyMissing) {
+                    $configs = array_filter($configs, function (array $item) use ($existingFiles) {
+                        return !array_search($item['identifier'] . '.css', $existingFiles);
+                    });
+                }
+
+                $providerConfigs[$provider->getName()] = $configs;
+            }
+
+            $configList[$storeId] = $providerConfigs;
+
+            $this->emulation->stopEnvironmentEmulation();
+        }
+
+        return $configList;
+    }
+
+    private function generateProcessConfigsForProvider(ProviderInterface $provider, StoreInterface $store, string $customDomain = null): array
+    {
+        $configList = [];
+        $urls = $provider->getUrls($store);
+        foreach ($urls as $identifier => $url) {
+            if ($customDomain) {
+                $url = preg_replace("/(https?:\/\/)[^\/]+/", "$1$customDomain", $url);
+            }
+
+            $config = [
+                'url' => $url,
+                'dimensions' => $this->config->getDimensions(),
+                'username' => $this->config->getUsername(),
+                'password' => $this->config->getPassword(),
+                'store' => $store->getId(),
+                'provider' => $provider->getName(),
+                'identifier' => $identifier
+            ];
+            $configList[] = $config;
+        }
+        return $configList;
+    }
+
+    protected function handleEndedProcess(ProcessContext $context, bool $postProcessingNoDomain = false)
     {
         $process = $context->getProcess();
         if (!$process->isSuccessful()) {
@@ -170,7 +276,8 @@ class ProcessManager
         }
 
         $criticalCss = $process->getOutput();
-        $this->storage->saveCriticalCss($context->getIdentifier(), $this->cssProcessor->process($criticalCss));
+        $criticalCss = $this->cssProcessor->process($criticalCss, $postProcessingNoDomain);
+        $this->storage->saveCriticalCss($context->getIdentifier(), $criticalCss);
         $size = $this->storage->getFileSize($context->getIdentifier());
         if (!$size) {
             $size = '?';

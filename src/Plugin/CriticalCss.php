@@ -2,7 +2,6 @@
 
 namespace M2Boilerplate\CriticalCss\Plugin;
 
-use M2Boilerplate\CriticalCss\Console\Command\GenerateCommand;
 use M2Boilerplate\CriticalCss\Provider\Container;
 use M2Boilerplate\CriticalCss\Service\Identifier;
 use M2Boilerplate\CriticalCss\Service\Storage;

@@ -3,6 +3,8 @@
         <arguments>
             <argument name="commands" xsi:type="array">
                 <item name="m2bp_critical_css_generate" xsi:type="object">M2Boilerplate\CriticalCss\Console\Command\GenerateCommand</item>
+                <item name="m2bp_critical_css_create_processes" xsi:type="object">M2Boilerplate\CriticalCss\Console\Command\CreateProcessesCommand</item>
+                <item name="m2bp_critical_css_run_from_config" xsi:type="object">M2Boilerplate\CriticalCss\Console\Command\RunFromConfigCommand</item>
             </argument>
         </arguments>
     </type>

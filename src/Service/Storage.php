@@ -3,8 +3,6 @@
 namespace M2Boilerplate\CriticalCss\Service;
 
 use Magento\Framework\App\Filesystem\DirectoryList;
-use Magento\Framework\View\Asset\Repository as AssetRepository;
-use Magento\Framework\View\Asset\File;
 
 class Storage
 {
@@ -69,6 +67,17 @@ class Storage
             return null;
         }
         return $this->directory->readFile($file);
+    }
+
+    public function getFileList(): array
+    {
+        $fileList = $this->directory->search('*.css', self::DIRECTORY);
+
+        $fileList = array_map(function ($item) {
+            return str_replace(self::DIRECTORY . '/', '', $item);
+        }, $fileList);
+
+        return $fileList;
     }
 
     public function getFileSize($identifier): ?string

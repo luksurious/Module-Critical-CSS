@@ -24,11 +24,13 @@ class CssProcessor
         $this->storeManager = $storeManager;
     }
 
-    public function process(string $cssContent)
+    public function process(string $cssContent, bool $noDomain = false)
     {
         $pattern = '@(\.\./)*(/static|/pub/static)/(.+)$@i'; // matches paths that contain pub/static/ or just static/
         $store = $this->storeManager->getStore(); /** @var Store $store */
-        $baseUrl = $store->getBaseUrl(UrlInterface::URL_TYPE_WEB);
+
+        $baseUrl = $noDomain ? '/' : $store->getBaseUrl(UrlInterface::URL_TYPE_WEB);
+
         return $this->cssResolver->replaceRelativeUrls($cssContent, function ($path) use ($pattern, $baseUrl) {
             $matches = [];
             if(preg_match($pattern, $path, $matches[0])) {
