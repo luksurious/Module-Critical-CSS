@@ -55,7 +55,6 @@ class ProcessManager
      */
     protected $logger;
 
-
     /**
      * @var CssProcessor
      */
@@ -87,27 +86,32 @@ class ProcessManager
     /**
      * @param ProcessContext[] $processList
      * @param bool $deleteOldFiles
-     * @param bool $skipPostProcessing
+     * @param bool $postProcessingNoDomain
      * @throws \Magento\Framework\Exception\FileSystemException
      */
-    public function executeProcesses(array $processList, bool $deleteOldFiles = false,
-                                     bool $postProcessingNoDomain = false): void
+    public function executeProcesses(
+        array $processList,
+        bool $deleteOldFiles = false,
+        bool $postProcessingNoDomain = false
+    ): void
     {
 
         if ($deleteOldFiles) {
             $this->storage->clean();
         }
+
         /** @var ProcessContext[] $batch */
         $batch = array_splice($processList, 0, $this->config->getNumberOfParallelProcesses());
         foreach ($batch as $context) {
             $context->getProcess()->start();
             $this->logger->debug(sprintf(
                 '[%s|%s] > %s',
-                $context->getProvider()->getName(),
+                $context->getProviderName(),
                 $context->getOrigIdentifier(),
                 $context->getProcess()->getCommandLine()
             ));
         }
+
         while (count($processList) > 0 || count($batch) > 0) {
             foreach ($batch as $key => $context) {
                 if (!$context->getProcess()->isRunning()) {
@@ -122,7 +126,7 @@ class ProcessManager
                         $newProcess->getProcess()->start();
                         $this->logger->debug(sprintf(
                             '[%s|%s] - %s',
-                            $context->getProvider()->getName(),
+                            $context->getProviderName(),
                             $context->getOrigIdentifier(),
                             $context->getProcess()->getCommandLine()
                         ));
@@ -147,7 +151,7 @@ class ProcessManager
             foreach ($this->container->getProviders() as $provider) {
                 $configList = $this->generateProcessConfigsForProvider($provider, $store, $customDomain);
 
-                $providerProcesses = $this->createProcessesForProvider($provider, $store, $configList);
+                $providerProcesses = $this->createProcessesForProvider($configList);
 
                 if ($onlyMissing) {
                     $providerProcesses = array_filter($providerProcesses, function (ProcessContext $item) use ($existingFiles) {
@@ -163,14 +167,14 @@ class ProcessManager
         return $processList;
     }
 
-    public function createProcessesForProvider(ProviderInterface $provider, StoreInterface $store, array $configList): array
+    public function createProcessesForProvider(array $configList): array
     {
         $processList = [];
         foreach ($configList as $config) {
             $this->logger->info(sprintf(
                 '[%s:%s|%s] - %s',
-                $store->getCode(),
-                $provider->getName(),
+                $config['storeCode'],
+                $config['providerName'],
                 $config['identifier'],
                 $config['url']
             ));
@@ -184,8 +188,8 @@ class ProcessManager
             );
             $context = $this->contextFactory->create([
                 'process' => $process,
-                'store' => $store,
-                'provider' => $provider,
+                'storeCode' => $config['storeCode'],
+                'providerName' => $config['providerName'],
                 'identifier' => $config['identifier']
             ]);
             $processList[] = $context;
@@ -196,20 +200,14 @@ class ProcessManager
     public function createProcessesFromConfig(array $configList): array
     {
         $processList = [];
-        foreach ($this->storeManager->getStores() as $storeId => $store) {
-            $this->emulation->startEnvironmentEmulation($storeId, \Magento\Framework\App\Area::AREA_FRONTEND, true);
-            $this->storeManager->setCurrentStore($storeId);
-
+        foreach ($configList as $storeId => $storeConfig) {
             $storeConfig = $configList[$storeId];
 
-            foreach ($this->container->getProviders() as $provider) {
-                $providerConfig = $storeConfig[$provider->getName()];
-
-                $providerProcesses = $this->createProcessesForProvider($provider, $store, $providerConfig);
+            foreach ($storeConfig as $providerName => $providerConfig) {
+                $providerProcesses = $this->createProcessesForProvider($providerConfig);
 
                 $processList = array_merge($processList, $providerProcesses);
             }
-            $this->emulation->stopEnvironmentEmulation();
         }
 
         return $processList;
@@ -245,7 +243,11 @@ class ProcessManager
         return $configList;
     }
 
-    private function generateProcessConfigsForProvider(ProviderInterface $provider, StoreInterface $store, string $customDomain = null): array
+    protected function generateProcessConfigsForProvider(
+        ProviderInterface $provider,
+        StoreInterface $store,
+        string $customDomain = null
+    ): array
     {
         $configList = [];
         $urls = $provider->getUrls($store);
@@ -259,8 +261,9 @@ class ProcessManager
                 'dimensions' => $this->config->getDimensions(),
                 'username' => $this->config->getUsername(),
                 'password' => $this->config->getPassword(),
-                'store' => $store->getId(),
-                'provider' => $provider->getName(),
+                'storeId' => $store->getId(),
+                'storeCode' => $store->getCode(),
+                'providerName' => $provider->getName(),
                 'identifier' => $identifier
             ];
             $configList[] = $config;
@@ -284,8 +287,8 @@ class ProcessManager
         }
         $this->logger->info(
             sprintf('[%s:%s|%s] Finished: %s.css (%s bytes)',
-                $context->getStore()->getCode(),
-                $context->getProvider()->getName(),
+                $context->getStoreCode(),
+                $context->getProviderName(),
                 $context->getOrigIdentifier(),
                 $context->getIdentifier(),
                 $size

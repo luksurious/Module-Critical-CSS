@@ -5,31 +5,15 @@ namespace M2Boilerplate\CriticalCss\Console\Command;
 use M2Boilerplate\CriticalCss\Config\Config;
 use M2Boilerplate\CriticalCss\Logger\Handler\ConsoleHandlerFactory;
 use M2Boilerplate\CriticalCss\Service\CriticalCss;
-use M2Boilerplate\CriticalCss\Service\ProcessManager;
 use M2Boilerplate\CriticalCss\Service\ProcessManagerFactory;
 use Magento\Framework\ObjectManagerInterface;
 use Magento\Framework\App\State;
-use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
-class RunFromConfigCommand extends Command
+class RunFromConfigCommand extends BaseCriticalCssCommand
 {
-    /**
-     * @var ProcessManagerFactory
-     */
-    protected $processManagerFactory;
-    /**
-     * @var ConsoleHandlerFactory
-     */
-    protected $consoleHandlerFactory;
-    /**
-     * @var ObjectManagerInterface
-     */
-    protected $objectManager;
     /**
      * @var Config
      */
@@ -38,11 +22,6 @@ class RunFromConfigCommand extends Command
      * @var CriticalCss
      */
     protected $criticalCssService;
-
-    /**
-     * @var \Magento\Framework\App\State
-     */
-    protected $state;
 
     public function __construct(
         Config $config,
@@ -54,13 +33,9 @@ class RunFromConfigCommand extends Command
         ?string $name = null
     )
     {
-        parent::__construct($name);
-        $this->processManagerFactory = $processManagerFactory;
-        $this->consoleHandlerFactory = $consoleHandlerFactory;
-        $this->objectManager = $objectManager;
+        parent::__construct($objectManager, $consoleHandlerFactory, $processManagerFactory, $state, $name);
         $this->config = $config;
         $this->criticalCssService = $criticalCssService;
-        $this->state = $state;
     }
 
 
@@ -68,52 +43,32 @@ class RunFromConfigCommand extends Command
     {
         $this->setName('m2bp:critical-css:run-from-config');
         $this->addArgument('config', InputArgument::REQUIRED, 'Path to config file');
-        $this->addOption('no-domain-postprocessing', 's', InputOption::VALUE_NONE,
-            'Don\'t add the base domain during post processing');
-        $this->addOption('keep-old-files', null, InputOption::VALUE_NONE,
-            'Don\'t delete old files');
+        $this->addExecutionOptions();
+
         parent::configure();
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        try {
-            $this->state->setAreaCode(\Magento\Framework\App\Area::AREA_ADMINHTML);
+        $this->criticalCssService->test($this->config->getCriticalBinary());
 
-            $output->writeln('<info>Disabling ' . Config::CONFIG_PATH_ENABLED . ' while collecting css...</info>');
-            $this->getApplication()->find("config:set")->run(new ArrayInput(["path" => Config::CONFIG_PATH_ENABLED, "value" => "0", "--lock-env" => 1]), $output);
-            $this->getApplication()->find("app:config:import")->run(new ArrayInput([]), $output);
-            $this->getApplication()->find("cache:flush")->run(new ArrayInput([]), $output);
+        $this->prepareProcessExecutions($output);
+        $logger = $this->createLogger($output);
 
-            $this->criticalCssService->test($this->config->getCriticalBinary());
-            $consoleHandler = $this->consoleHandlerFactory->create(['output' => $output]);
-            $logger = $this->objectManager->create('M2Boilerplate\CriticalCss\Logger\Console', ['handlers' => ['console' => $consoleHandler]]);
-            $output->writeln('<info>Generating Critical CSS</info>');
+        $output->writeln('<info>Running Critical CSS generation from Config JSON</info>');
 
-            $configList = json_decode(file_get_contents($input->getArgument('config')), true);
+        // load config JSON
+        $configList = json_decode(file_get_contents($input->getArgument('config')), true);
 
-            /** @var ProcessManager $processManager */
-            $processManager = $this->processManagerFactory->create(['logger' => $logger]);
-            $output->writeln('<info>Gathering URLs...</info>');
-            $processes = $processManager->createProcessesFromConfig($configList);
-            $output->writeln('<info>Generating Critical CSS for ' . count($processes) . ' URLs...</info>');
+        $processManager = $this->createProcessManager($logger);
+        $processes = $processManager->createProcessesFromConfig($configList);
 
-            $processManager->executeProcesses(
-                $processes,
-                !$input->getOption('keep-old-files'),
-                $input->getOption('no-domain-postprocessing')
-            );
+        $output->writeln('<info>Generating Critical CSS for ' . count($processes) . ' URLs...</info>');
 
-            $output->writeln('<info>Enabling ' . Config::CONFIG_PATH_ENABLED . '...</info>');
-            $this->getApplication()->find("config:set")->run(new ArrayInput(["path" => Config::CONFIG_PATH_ENABLED, "value" => "1", "--lock-env" => 1]), $output);
-            $this->getApplication()->find("app:config:import")->run(new ArrayInput([]), $output);
-            $this->getApplication()->find("cache:flush")->run(new ArrayInput([]), $output);
+        $this->runProcesses($processManager, $input, $processes);
 
-        } catch (\Throwable $e) {
-            throw $e;
-        }
+        $this->finishProcessExecutions($output);
+
         return 0;
     }
-
-
 }

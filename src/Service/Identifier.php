@@ -25,4 +25,10 @@ class Identifier
         return $this->encryptor->hash($uniqueIdentifier, Encryptor::HASH_VERSION_MD5);
     }
 
+    public function generateIdentifierFromConfig(string $providerName, string $storeCode, $identifier)
+    {
+        $uniqueIdentifier = sprintf('[%s]%s_%s', $storeCode, $providerName, $identifier);
+        return $this->encryptor->hash($uniqueIdentifier, Encryptor::HASH_VERSION_MD5);
+    }
+
 }

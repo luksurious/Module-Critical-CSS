@@ -2,9 +2,7 @@
 
 namespace M2Boilerplate\CriticalCss\Model;
 
-use M2Boilerplate\CriticalCss\Provider\ProviderInterface;
 use M2Boilerplate\CriticalCss\Service\Identifier;
-use Magento\Store\Api\Data\StoreInterface;
 use Symfony\Component\Process\Process;
 
 class ProcessContext
@@ -14,14 +12,6 @@ class ProcessContext
      */
     protected $process;
     /**
-     * @var ProviderInterface
-     */
-    protected $provider;
-    /**
-     * @var StoreInterface
-     */
-    protected $store;
-    /**
      * @var string
      */
     protected $identifier;
@@ -29,36 +19,43 @@ class ProcessContext
      * @var Identifier
      */
     protected $identifierService;
+    /**
+     * @var string
+     */
+    protected $providerName;
+    /**
+     * @var string
+     */
+    protected $storeCode;
 
     public function __construct(
         Process $process,
-        ProviderInterface $provider,
-        StoreInterface $store,
+        string $providerName,
+        string $storeCode,
         Identifier $identifierService,
         string $identifier
     ) {
-
         $this->process = $process;
-        $this->provider = $provider;
-        $this->store = $store;
         $this->identifier = $identifier;
         $this->identifierService = $identifierService;
+        $this->storeCode = $storeCode;
+        $this->providerName = $providerName;
     }
 
     /**
-     * @return StoreInterface
+     * @return string
      */
-    public function getStore()
+    public function getStoreCode()
     {
-        return $this->store;
+        return $this->storeCode;
     }
 
     /**
-     * @return ProviderInterface
+     * @return string
      */
-    public function getProvider()
+    public function getProviderName()
     {
-        return $this->provider;
+        return $this->providerName;
     }
 
     /**
@@ -76,9 +73,9 @@ class ProcessContext
 
     public function getIdentifier()
     {
-        return $this->identifierService->generateIdentifier(
-            $this->provider,
-            $this->store,
+        return $this->identifierService->generateIdentifierFromConfig(
+            $this->providerName,
+            $this->storeCode,
             $this->identifier
         );
     }
