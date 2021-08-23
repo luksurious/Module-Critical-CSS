@@ -94,9 +94,8 @@ abstract class BaseCriticalCssCommand extends Command
         $this->state->setAreaCode(\Magento\Framework\App\Area::AREA_ADMINHTML);
 
         $output->writeln('<info>Disabling ' . Config::CONFIG_PATH_ENABLED . ' while collecting css...</info>');
-        $this->getApplication()->find("config:set")->run(new ArrayInput(["path" => Config::CONFIG_PATH_ENABLED, "value" => "0", "--lock-env" => 1]), $output);
-        $this->getApplication()->find("app:config:import")->run(new ArrayInput([]), $output);
-        $this->getApplication()->find("cache:flush")->run(new ArrayInput([]), $output);
+        $this->getApplication()->find("config:set")->run(new ArrayInput(["path" => Config::CONFIG_PATH_ENABLED, "value" => "0"]), $output);
+        $this->getApplication()->find("cache:clean")->run(new ArrayInput([]), $output);
     }
 
     /**
@@ -120,9 +119,8 @@ abstract class BaseCriticalCssCommand extends Command
     protected function finishProcessExecutions(OutputInterface $output): void
     {
         $output->writeln('<info>Enabling ' . Config::CONFIG_PATH_ENABLED . '...</info>');
-        $this->getApplication()->find("config:set")->run(new ArrayInput(["path" => Config::CONFIG_PATH_ENABLED, "value" => "1", "--lock-env" => 1]), $output);
-        $this->getApplication()->find("app:config:import")->run(new ArrayInput([]), $output);
-        $this->getApplication()->find("cache:flush")->run(new ArrayInput([]), $output);
+        $this->getApplication()->find("config:set")->run(new ArrayInput(["path" => Config::CONFIG_PATH_ENABLED, "value" => "1"]), $output);
+        $this->getApplication()->find("cache:clean")->run(new ArrayInput([]), $output);
     }
 
     /**
